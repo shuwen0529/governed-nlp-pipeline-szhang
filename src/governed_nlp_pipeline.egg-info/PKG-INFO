@@ -1,0 +1,5 @@
+Metadata-Version: 2.4
+Name: governed-nlp-pipeline
+Version: 0.1.0
+Summary: Governed NLP preprocessing pipeline: QC, normalization, prompt-aware formatting, tokenization, chunking.
+Requires-Python: >=3.10
