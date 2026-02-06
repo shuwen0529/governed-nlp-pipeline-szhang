@@ -90,17 +90,19 @@ Design Principles
 
 Repository Structure
 --------------------
-src/governed_nlp/
-  data/         Synthetic data generation and IO
-  preprocess/   QC, normalization, prompt formatting, splitting
-  nlp/          Tokenization and chunking utilities
-  cli.py        End-to-end demo runner
-
+<pre>
+src/
+└── governed_nlp/
+    ├── data/          # Synthetic data generation and IO
+    ├── preprocess/    # QC, normalization, prompt formatting, splitting
+    ├── nlp/           # Tokenization and chunking utilities
+    └── cli.py         # End-to-end demo runner
 tests/
   Unit tests for QC, formatting, and splitting
 
 notebooks/
   End-to-end exploratory demo (optional)
+</pre>
 
 
 Quick Start

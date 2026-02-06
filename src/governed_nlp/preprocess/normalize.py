@@ -1,14 +1,14 @@
 import re
 import unicodedata
 from typing import Optional
-import pandas as pd
+import pandas as pd # type: ignore
 
 _MULTI_WS_RE = re.compile(r"\s+")
 _NON_PRINTABLE_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 _ZERO_WIDTH_RE = re.compile(r"[\u200B-\u200D\uFEFF]")
 
 def light_normalize_text(s: Optional[str]) -> str:
-    if s is None:
+    if s is None or pd.isna(s):
         return ""
     s = str(s)
     s = unicodedata.normalize("NFKC", s)

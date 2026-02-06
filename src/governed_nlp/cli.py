@@ -7,7 +7,7 @@ from __future__ import annotations
 import argparse
 from dataclasses import asdict
 
-import pandas as pd
+import pandas as pd # type: ignore
 
 from governed_nlp.config import QCConfig, TextConfig # type: ignore
 from governed_nlp.data.synthetic import make_synthetic_responses # type: ignore
@@ -19,15 +19,37 @@ from governed_nlp.nlp.chunking import add_token_chunks, ChunkConfig # type: igno
 from governed_nlp.preprocess.split import split_leakage_safe, SplitConfig # type: ignore
 
 
-def _summarize(df: pd.DataFrame, name: str) -> None:
-    print(f"\n--- {name} ---")
-    print(f"rows={len(df)}")
-    if "needs_review" in df.columns:
-        print(f"needs_review_rate={df['needs_review'].mean():.3f}")
-    for c in ["prompt_id", "human_score"]:
-        if c in df.columns:
-            vc = df[c].value_counts(dropna=False).head(5)
-            print(f"\nTop {c} values:\n{vc.to_string()}")
+def _top_counts(df: pd.DataFrame, col: str, n: int = 3) -> str:
+    if col not in df.columns:
+        return ""
+    vc = df[col].value_counts(dropna=False).head(n)
+    return "; ".join([f"{idx}:{int(val)}" for idx, val in vc.items()])
+
+
+def _print_table(df: pd.DataFrame, title: str, max_rows: int = 10) -> None:
+    print(f"\n{title}")
+    with pd.option_context(
+        "display.max_rows", max_rows,
+        "display.max_columns", 20,
+        "display.width", 120,
+    ):
+        print(df.head(max_rows).to_string(index=False))
+
+
+def _summarize(df: pd.DataFrame, name: str, quiet: bool = False) -> None:
+    rows = len(df)
+    needs = df["needs_review"].mean() if "needs_review" in df.columns else None
+    prompts = _top_counts(df, "prompt_id", n=3)
+    scores = _top_counts(df, "human_score", n=3)
+
+    line = f"{name}: rows={rows}"
+    if needs is not None:
+        line += f", needs_review={needs:.1%}"
+    if prompts:
+        line += f", prompts(top3)={prompts}"
+    if (not quiet) and scores:
+        line += f", scores(top3)={scores}"
+    print(line)
 
 
 def main():
@@ -57,14 +79,24 @@ def main():
     p.add_argument("--test_size", type=float, default=0.15)
     p.add_argument("--val_size", type=float, default=0.15)
 
+    # Step 8 evaluation
+    p.add_argument("--demo_eval", action="store_true",
+               help="Run demo evaluation metrics and slice diagnostics (no training)")
+
+    # CLI flags: --quiet and --verbose
+    p.add_argument("--quiet", action="store_true", help="Minimal output (interview-friendly)")
+    p.add_argument("--verbose", action="store_true", help="Verbose output (debugging)")
+
     args = p.parse_args()
+    quiet = bool(args.quiet)
+    verbose = bool(args.verbose) and not quiet
 
     # -------------------------
     # Step 1: Data ingestion & provenance (synthetic demo)
     # -------------------------
     df_raw = make_synthetic_responses(n=args.n, seed=args.seed)
     print("Loaded synthetic dataset.")
-    _summarize(df_raw, "Raw")
+    _summarize(df_raw, "Raw", quiet=quiet)
 
     # -------------------------
     # Step 2: QC & data validation
@@ -76,19 +108,18 @@ def main():
 
     df_deduped, df_dupes = dedupe_by_response_id(df_raw)
     df_qc = add_qc_flags(df_deduped, qc_cfg)
-
-    print(f"\nQC complete: raw={len(df_raw)} deduped={len(df_deduped)} dupes_removed={len(df_dupes)}")
-    _summarize(df_qc, "After QC")
+    print(f"QC: raw={len(df_raw)} deduped={len(df_deduped)} dupes_removed={len(df_dupes)}")
+    _summarize(df_qc, "After QC", quiet=quiet)
 
     # -------------------------
     # Step 3: Light normalization
     # -------------------------
     df_norm = add_normalized_text(df_qc, col="response_text")
-    print("\nNormalization complete.")
-    # Optional small diagnostic
     if "response_text_raw" in df_norm.columns and "response_text_norm" in df_norm.columns:
         changed_rate = (df_norm["response_text_raw"].fillna("") != df_norm["response_text_norm"].fillna("")).mean()
-        print(f"norm_changed_rate={changed_rate:.3f}")
+        print(f"Normalization: norm_changed_rate={changed_rate:.3f}")
+    else:
+        print("Normalization complete.")
 
     # -------------------------
     # Step 4: Prompt-aware input builder
@@ -103,8 +134,9 @@ def main():
         response_col="response_text_norm",
         out_col="model_text",
     )
-    print("\nPrompt-aware formatting complete.")
-    print("Example model_text:", (df_model["model_text"].iloc[0] or "")[:160], "...")
+    print("Prompt-aware formatting complete.")
+    if verbose:
+        print("Example model_text:", (df_model["model_text"].iloc[0] or "")[:160], "...")
 
     # -------------------------
     # Step 5: Tokenization (Hugging Face)
@@ -121,8 +153,9 @@ def main():
     tokenizer = get_tokenizer(tok_cfg)
     pad_token_id = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else 0
 
-    print("\nTokenization complete.")
-    print("Example token length:", len(df_tok["tok_input_ids"].iloc[0]))
+    print(f"Tokenization complete. max_length={args.max_length}")
+    if verbose:
+        print("Example token length:", len(df_tok["tok_input_ids"].iloc[0]))
 
     # -------------------------
     # Step 6: Chunking (optional)
@@ -135,11 +168,11 @@ def main():
             pad_token_id=pad_token_id,
         )
         df_ready = add_token_chunks(df_tok, cfg=ch_cfg)
-        print("\nChunking complete.")
-        print("Example num_chunks:", int(df_ready["num_chunks"].iloc[0]))
+        print(f"Chunking enabled. chunk_size={args.chunk_size} stride={args.chunk_stride} "
+              f"example_num_chunks={int(df_ready['num_chunks'].iloc[0])}")
     else:
         df_ready = df_tok
-        print("\nChunking skipped (use --do_chunking to enable).")
+        print("Chunking skipped.")
 
     # -------------------------
     # Step 7: Leakage-safe split
@@ -155,23 +188,56 @@ def main():
     )
     train_df, val_df, test_df = split_leakage_safe(df_ready, cfg=sp_cfg)
 
-    print("\nLeakage-safe split complete.")
-    _summarize(train_df, "Train")
-    _summarize(val_df, "Validation")
-    _summarize(test_df, "Test")
+    print("Leakage-safe split complete.")
+    _summarize(train_df, "Train", quiet=quiet)
+    _summarize(val_df, "Validation", quiet=quiet)
+    _summarize(test_df, "Test", quiet=quiet)
 
-    # A few rows for inspection
-    cols_show = [c for c in ["response_id", "prompt_id", "human_score", "needs_review", "model_text"] if c in train_df.columns]
-    print("\nSample rows (train):")
-    print(train_df[cols_show].head(5).to_string(index=False))
+    if verbose:
+        cols_show = [c for c in ["response_id", "prompt_id", "human_score", "needs_review", "model_text"] if c in train_df.columns]
+        _print_table(train_df[cols_show], "Sample rows (train):", max_rows=5)
 
-    print("\nRun configs:")
-    print("QCConfig:", qc_cfg)
-    print("PromptFormatConfig:", pf_cfg)
-    print("TokenizeConfig:", tok_cfg)
-    if args.do_chunking:
-        print("ChunkConfig:", ch_cfg)
-    print("SplitConfig:", sp_cfg)
+        print("\nRun configs:")
+        print("QCConfig:", qc_cfg)
+        print("PromptFormatConfig:", pf_cfg)
+        print("TokenizeConfig:", tok_cfg)
+        if args.do_chunking:
+            print("ChunkConfig:", ch_cfg)
+        print("SplitConfig:", sp_cfg)
+
+    # -------------------------
+    # Step 8: Modeling & Evaluation (demo-only)
+    # -------------------------
+    if args.demo_eval:
+        from governed_nlp.modeling.evaluate import evaluate_by_slice, make_length_bins  # type: ignore
+        import numpy as np  # type: ignore
+
+        # Create synthetic predictions (demo-only)
+        rng = np.random.default_rng(args.seed)
+        test_df_eval = test_df.copy()
+
+        test_df_eval["y_true"] = test_df_eval["human_score"].astype(int)
+        noise = rng.integers(-1, 2, size=len(test_df_eval))  # -1,0,1
+        test_df_eval["y_pred"] = (test_df_eval["y_true"] + noise).clip(0, 4)
+
+        # Slice by length bins (practical robustness check)
+        text_for_len = (
+            test_df_eval["response_text_norm"]
+            if "response_text_norm" in test_df_eval.columns
+            else test_df_eval["model_text"]
+        )
+        test_df_eval["len_bin"] = make_length_bins(text_for_len)
+
+        by_prompt = evaluate_by_slice(
+            test_df_eval, "y_true", "y_pred", slice_col="prompt_id"
+        )
+        by_len = evaluate_by_slice(
+            test_df_eval, "y_true", "y_pred", slice_col="len_bin"
+        )
+
+        print("\nDemo Eval (synthetic preds):")
+        _print_table(by_prompt, "By prompt_id:", max_rows=10) # type: ignore
+        _print_table(by_len, "By length bin:", max_rows=10) # type: ignore
 
 
 if __name__ == "__main__":

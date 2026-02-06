@@ -1,7 +1,7 @@
 import re
 from typing import List, Tuple
 import pandas as pd
-from governed_nlp.config import QCConfig
+from governed_nlp.config import QCConfig # type: ignore
 
 _NON_PRINTABLE_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
@@ -37,9 +37,8 @@ def add_qc_flags(df: pd.DataFrame, cfg: QCConfig) -> pd.DataFrame:
 
     out["flag_outlier_length"] = out["char_count"].gt(cfg.max_chars_outlier)
 
-    out["flag_repeated_char_run"] = text.fillna("").str.contains(
-        rf"(.)\1{{{cfg.repeated_char_run-1},}}", regex=True
-    )
+    rep_re = re.compile(rf"(.)\1{{{cfg.repeated_char_run-1},}}")
+    out["flag_repeated_char_run"] = text.fillna("").map(lambda s: bool(rep_re.search(str(s))))
 
     qc_flags = [c for c in out.columns if c.startswith("flag_")]
     out["needs_review"] = out[qc_flags].any(axis=1)
