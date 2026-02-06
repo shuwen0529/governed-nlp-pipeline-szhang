@@ -71,6 +71,13 @@ Step 7: Leakage-Safe Splitting
 - Group-level splits (e.g., entity or user)
 - Time-based splits for forecasting or longitudinal analysis
 
+Step 8: Modeling & Evaluation (Practical, Decision-Aligned)
+- Transformer fine-tuning (BERT/RoBERTa) for rubric-aligned classification
+- Decision-aligned metrics:
+  * Weighted kappa (agreement with human judgment)
+  * Adjacent accuracy (+/-1 tolerance, mirrors rubric boundary decisions)
+- Slice-based evaluation for robustness/fairness diagnostics (e.g., length bins, prompt-level)
+- Explainability positioned as diagnostics for trust (example-based review, sanity checks)
 
 Design Principles
 -----------------
