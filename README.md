@@ -135,6 +135,6 @@ Author
 Shuwen Zhang, Ph.D.
 Senior Data Scientist
 
-This repository was created as an interview-ready example of how I design
+This repository was created as an example of how I design
 end-to-end NLP pipelines that balance technical rigor, governance, and
 business impact.
