@@ -96,6 +96,7 @@ src/
     ├── data/          # Synthetic data generation and IO
     ├── preprocess/    # QC, normalization, prompt formatting, splitting
     ├── nlp/           # Tokenization and chunking utilities
+    ├── modeling/      # Modeling & Evaluation
     └── cli.py         # End-to-end demo runner
 tests/
   Unit tests for QC, formatting, and splitting
